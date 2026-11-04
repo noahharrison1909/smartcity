@@ -38,6 +38,7 @@ ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 
 TICK_SECONDS = 1.0        # hvor tit simuleringen regner (rigtige sekunder)
 LIVE_HOLD = 20.0          # så længe en micro:bit-værdi "vinder" over simuleringen
+GATEWAY_TIMEOUT = 90.0    # gateway regnes for offline efter dette (Chrome kan bremse baggrundsfaner)
 WEB_HOLD = 60.0           # så længe en værdi sat fra hjemmesiden holdes
 SNAPSHOT_EVERY = 30.0     # gem simulerede værdier i databasen hvert 30. sekund
 RETENTION_DAYS = 7        # slet målinger ældre end dette
@@ -314,6 +315,7 @@ class City:
         self.tl_timer = 0.0
         self.tl_green_len = 6.0
         self.flags = set()
+        self.gateway_seen = 0.0   # sidste livstegn fra en gateway-fane i klassen
         self.last_snapshot_db = 0.0
         self.last_state_db = 0.0
         self._restore()
@@ -419,6 +421,18 @@ class City:
                 self._send(name, value, now, force=True, source="web")
         return True, "ok"
 
+    def gateway_ping(self, connected=True):
+        with self.lock:
+            was = self.gateway_online()
+            self.gateway_seen = time.time() if connected else 0.0
+            if connected and not was:
+                self.log("Gateway i klassen er online")
+            elif not connected and was:
+                self.log("Gateway i klassen er afbrudt", "warn")
+
+    def gateway_online(self, now=None):
+        return (now or time.time()) - self.gateway_seen < GATEWAY_TIMEOUT
+
     def release(self, name):
         with self.lock:
             self.hold_until.pop(name, None)
@@ -474,6 +488,9 @@ class City:
             for name, d in KEYDEF.items():
                 if d["kind"] == "aktuator" and self.source.get(name) != "microbit":
                     self._send(name, self.values[name], now)
+            if self.gateway_seen and not self.gateway_online(now):
+                self.gateway_seen = 0.0
+                self.log("Gateway i klassen svarer ikke længere", "warn")
             for name in [n for n, t in self.hold_until.items() if t <= now]:
                 if self.source.get(name) == "microbit":
                     self.log(f"{name}: ingen data fra micro:bit – simuleringen tager over", "info")
@@ -636,6 +653,8 @@ class City:
             "values": {n: round(v, 2) for n, v in self.values.items()},
             "source": src,
             "devices": [dict(d, age=round(now - d["last"], 1)) for d in self.devices.values()],
+            "gateway": {"online": self.gateway_online(now),
+                        "age": round(now - self.gateway_seen, 1) if self.gateway_seen else None},
         }
 
 
@@ -729,6 +748,8 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError) as e:
             return self.send_json({"error": str(e)}, 400)
         if p == "/api/data":
+            if isinstance(data, dict) and data.get("gateway"):
+                CITY.gateway_ping(True)
             items = data.get("items") if isinstance(data, dict) and "items" in data else [data]
             results = []
             for it in items[:200]:
@@ -739,6 +760,9 @@ class Handler(BaseHTTPRequestHandler):
                 ok, msg = CITY.receive(name, it.get("value"), source, it.get("serial"))
                 results.append({"name": name, "ok": ok, "msg": msg})
             return self.send_json({"results": results})
+        if p == "/api/gateway":
+            CITY.gateway_ping(bool(data.get("connected", True)))
+            return self.send_json({"ok": True})
         if p == "/api/release":
             CITY.release(str(data.get("name", "")))
             return self.send_json({"ok": True})

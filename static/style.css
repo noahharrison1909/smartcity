@@ -157,3 +157,5 @@ button { font: inherit; cursor: pointer; }
 
 .lock-note { display: none; }
 body.locked .lock-note { display: inline; }
+.gw.on { background: #dcfce7; color: #166534; }
+.gw.off { background: #f1f5f9; color: var(--muted); }

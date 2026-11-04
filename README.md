@@ -33,6 +33,25 @@ Online gælder:
 
 Lokalt (`python3 server.py`) er der ingen adgangskode, medmindre du selv sætter `ADMIN_KEY`.
 
+## I timen: gateway-computeren
+
+Serveren kører på Render. I klassen skal der bare være **én computer med Chrome**, hvor gateway-micro:bit'en sidder i USB.
+Det kan være en hvilken som helst computer eller Chromebook (fx den der står ved projektoren).
+
+**Første gang på en ny computer**
+1. Sæt gateway-micro:bit'en (med `microbit/1-gateway.ts`) i USB.
+2. Åbn Render-adressen i Chrome og tryk **Forbind micro:bit** → vælg micro:bit'en → skriv adgangskoden.
+
+**Alle andre gange**
+- Åbn bare siden. Chrome husker micro:bit'en og kobler selv på.
+- Bliver micro:bit'en trukket ud, kobler siden selv på igen, når den sættes i.
+
+**Godt at vide**
+- Toppen af siden viser **📡 Gateway online/offline** for alle, der kigger – også hjemmefra.
+- Fanen holder skærmen vågen, mens gatewayen er forbundet, og advarer, hvis man prøver at lukke den.
+- Bedst: vis byen på projektoren fra gateway-computeren. Så er fanen altid synlig og kører hurtigst.
+- Fanen virker også i baggrunden, men Chrome kan gøre den lidt langsommere, når den ikke er i fokus.
+
 ## Sådan hænger det sammen
 
 ```

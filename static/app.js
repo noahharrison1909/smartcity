@@ -78,6 +78,9 @@ function onState(s) {
   updateDetail(s);
   updateEnergy(s.values);
   updateDevices(s.devices);
+  const gw = $("gwStatus");
+  gw.className = `pill gw ${s.gateway.online ? "on" : "off"}`;
+  gw.textContent = link.connected ? "📡 Gateway: denne fane" : s.gateway.online ? "📡 Gateway online" : "📡 Gateway offline";
 }
 
 // ------------------------------------------------------------------ topbar
@@ -280,7 +283,7 @@ function updateEnergy(V) {
 function updateDevices(devs) {
   $("devCount").textContent = devs.filter((d) => d.age < 20).length;
   if (!devs.length) {
-    $("devices").innerHTML = `<li><span class="empty">Ingen micro:bits endnu. Sæt gateway-micro:bit'en i USB og tryk <b>Forbind micro:bit</b>.</span></li>`;
+    $("devices").innerHTML = `<li><span class="empty">Ingen micro:bits endnu. På computeren i klassen: sæt gateway-micro:bit'en i USB, åbn siden i Chrome og tryk <b>Forbind micro:bit</b>.</span></li>`;
     return;
   }
   $("devices").innerHTML = devs.sort((a, b) => a.age - b.age).map((d) => {
@@ -308,16 +311,46 @@ function banner(text, warn) {
   b.style.background = warn ? "" : "#ecfdf5";
 }
 
-// ------------------------------------------------------------------ micro:bit via USB
+// ------------------------------------------------------------------ micro:bit via USB (gateway)
+// Denne fane er "broen" i klassen: radio -> gateway-micro:bit -> USB -> denne fane -> serveren.
+// Den er bygget til at køre i timevis: ingen timere i datavejen (Chrome bremser dem i
+// baggrundsfaner), skærmen holdes vågen, og micro:bit'en kobles på igen af sig selv.
 let pending = [];
+let sending = false;
 let packets = 0;
 let lastRawLog = 0;
+let wakeLock = null;
+
+// Send data videre så snart de kommer; mens et kald er undervejs samles nye data op
+function flush() {
+  if (sending || !pending.length) return;
+  sending = true;
+  const items = pending.splice(0, 200);
+  api("/api/data", { items, gateway: true })
+    .then((r) => { for (const x of r.results) if (!x.ok) addLog({ ts: Date.now() / 1000, level: "warn", text: `${x.name}: ${x.msg}` }); })
+    .catch(() => { if (pending.length < 1000) pending.unshift(...items); }) // prøv igen ved netværksfejl
+    .finally(() => { sending = false; if (pending.length) flush(); });
+}
+
+async function keepAwake(on) {
+  try {
+    if (on && "wakeLock" in navigator && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => (wakeLock = null));
+    } else if (!on && wakeLock) {
+      await wakeLock.release();
+    }
+  } catch {}
+}
+// Wake lock slippes når fanen skjules – tag den igen når den vises
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && link.connected) keepAwake(true); });
 
 const link = new MicrobitLink({
   onData(d) {
     packets++;
     pending.push({ name: d.name, value: d.value, serial: d.serial, source: "microbit" });
-    $("connectBtn").textContent = `✓ micro:bit · ${packets} pakker`;
+    $("connectBtn").textContent = `✓ Gateway · ${packets} pakker`;
+    flush();
   },
   onRaw(line) {
     // Vis linjer vi ikke forstår (max én pr. sekund) – nyttigt når man fejlsøger
@@ -329,25 +362,43 @@ const link = new MicrobitLink({
   onStatus(s) {
     const btn = $("connectBtn");
     btn.classList.toggle("connected", s === "connected");
-    btn.textContent = s === "connected" ? "✓ micro:bit forbundet" : "🔌 Forbind micro:bit";
+    btn.textContent = s === "connected" ? "✓ Gateway forbundet" : "🔌 Forbind micro:bit";
+    document.body.classList.toggle("gateway", s === "connected");
+    keepAwake(s === "connected");
     if (s === "connected") {
       packets = 0;
-      api("/api/sim", { resync: true });  // send alle aktuator-værdier ud igen
-      addLog({ ts: Date.now() / 1000, level: "info", text: "micro:bit forbundet via USB" });
+      api("/api/sim", { resync: true }).catch(() => {});  // send alle aktuator-værdier ud igen
+      heartbeat();
+      addLog({ ts: Date.now() / 1000, level: "info", text: "Gateway-micro:bit forbundet – lad denne fane være åben" });
     } else {
-      addLog({ ts: Date.now() / 1000, level: "warn", text: "micro:bit afbrudt" });
+      api("/api/gateway", { connected: false }).catch(() => {});
+      addLog({ ts: Date.now() / 1000, level: "warn", text: "Gateway-micro:bit afbrudt – sæt den i igen, så kobler siden selv på" });
     }
   },
 });
 
-// Saml data i små pakker, så serveren ikke får én forespørgsel pr. radiobesked
-setInterval(() => {
-  if (!pending.length) return;
-  const items = pending.splice(0, 200);
-  api("/api/data", { items }).then((r) => {
-    for (const x of r.results) if (!x.ok) addLog({ ts: Date.now() / 1000, level: "warn", text: `${x.name}: ${x.msg}` });
-  }).catch(() => {});
-}, 150);
+// Fortæl serveren at gatewayen lever, så alle der kigger kan se det
+function heartbeat() {
+  if (link.connected) api("/api/gateway", { connected: true, packets }).catch(() => {});
+}
+setInterval(heartbeat, 10000);
+
+// Advar før fanen lukkes ved et uheld
+window.addEventListener("beforeunload", (e) => { if (link.connected) { e.preventDefault(); e.returnValue = ""; } });
+
+// Kobl automatisk på igen: ved genindlæsning og når micro:bit'en sættes i igen
+async function autoConnect() {
+  if (link.connected || !link.supported) return;
+  try {
+    const port = await link.knownPort();
+    if (!port) return;
+    await api("/api/auth", {});
+    await link.connect(port);
+  } catch (e) {
+    console.warn("Auto-forbind fejlede", e);
+  }
+}
+if (link.supported) navigator.serial.addEventListener("connect", () => setTimeout(autoConnect, 500));
 
 async function toggleMicrobit() {
   try {
@@ -361,4 +412,4 @@ async function toggleMicrobit() {
   }
 }
 
-init().catch((e) => banner(`Kunne ikke starte: ${e.message}`, true));
+init().then(autoConnect).catch((e) => banner(`Kunne ikke starte: ${e.message}`, true));

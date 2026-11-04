@@ -14,6 +14,8 @@ export function parseLine(line) {
   return { serial: m[1] ?? "usb", name: m[2], value: Number(m[3]) };
 }
 
+const MICROBIT_VENDOR = 0x0d28;
+
 export class MicrobitLink {
   constructor({ onData, onRaw, onStatus }) {
     this.onData = onData;
@@ -26,9 +28,16 @@ export class MicrobitLink {
   get supported() { return "serial" in navigator; }
   get connected() { return !!this.port; }
 
-  async connect() {
+  // Finder en micro:bit som browseren allerede har fået lov til at bruge (ingen dialog)
+  async knownPort() {
+    if (!this.supported) return null;
+    const ports = await navigator.serial.getPorts();
+    return ports.find((p) => p.getInfo().usbVendorId === MICROBIT_VENDOR) || null;
+  }
+
+  async connect(port = null) {
     if (!this.supported) throw new Error("WebSerial virker kun i Chrome eller Edge på en computer.");
-    const port = await navigator.serial.requestPort({ filters: [{ usbVendorId: 0x0d28 }] }); // 0x0d28 = micro:bit
+    port ||= await navigator.serial.requestPort({ filters: [{ usbVendorId: MICROBIT_VENDOR }] });
     await port.open({ baudRate: 115200 });
     this.port = port;
 
@@ -72,11 +81,10 @@ export class MicrobitLink {
 
   send(name, value) {
     if (!this.writer) return;
-    // Kø, så linjer ikke blandes sammen
-    // og med en lille pause, så gateway'ens lille modtage-buffer ikke løber over
+    // Kø, så linjer ikke blandes sammen. Ingen setTimeout her: Chrome bremser timere
+    // i baggrundsfaner, og gateway-fanen skal virke selvom den ikke er i fokus.
     this.writeChain = this.writeChain
       .then(() => this.writer?.write(`${name},${value}\n`))
-      .then(() => new Promise((r) => setTimeout(r, 20)))
       .catch(() => {});
   }
 

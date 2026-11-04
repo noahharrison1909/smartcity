@@ -8,7 +8,7 @@
 radio.setGroup(1)                     // alle micro:bits i klassen skal bruge samme gruppe
 radio.setTransmitPower(7)
 serial.setBaudRate(BaudRate.BaudRate115200)
-serial.setRxBufferSize(128)          // plads til flere kommandoer i træk
+serial.setRxBufferSize(254)          // plads til mange kommandoer i træk
 basic.showIcon(IconNames.House)
 
 // Data fra en model-micro:bit -> videre til hjemmesiden
