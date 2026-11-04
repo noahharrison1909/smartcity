@@ -1,0 +1,6 @@
+# Databasen er lokal data – den skal ikke på GitHub
+*.db
+*.db-shm
+*.db-wal
+__pycache__/
+.DS_Store
