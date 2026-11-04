@@ -13,8 +13,25 @@ let selected = localStorage.getItem("sc.selected") || "GL";
 const history = {};          // navn -> [{t, v}]
 const HISTORY_MAX = 900;
 
-async function api(path, body) {
-  const res = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {});
+// Adgangskode (kun når serveren har ADMIN_KEY sat, fx online på Render)
+const getKey = () => { try { return localStorage.getItem("sc.key") || ""; } catch { return ""; } };
+const setKey = (k) => { try { localStorage.setItem("sc.key", k); } catch {} };
+let askingKey = null;
+
+async function api(path, body, retried = false) {
+  const opts = body
+    ? { method: "POST", headers: { "Content-Type": "application/json", "X-Admin-Key": getKey() }, body: JSON.stringify(body) }
+    : {};
+  const res = await fetch(path, opts);
+  if (res.status === 401 && !retried) {
+    // Spørg kun én gang ad gangen, selvom flere kald fejler samtidig
+    askingKey ||= Promise.resolve().then(() => prompt("Denne by er låst. Skriv adgangskoden for at styre den:"));
+    const key = await askingKey;
+    askingKey = null;
+    if (!key) throw new Error("Ingen adgangskode – du kan kun se byen");
+    setKey(key.trim());
+    return api(path, body, true);
+  }
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   return res.json();
 }
@@ -22,6 +39,8 @@ async function api(path, body) {
 // ------------------------------------------------------------------ opstart
 async function init() {
   models = await api("/api/models");
+  const cfg = await api("/api/config");
+  if (cfg.locked) document.body.classList.add("locked");
   for (const m of models) for (const k of m.keys) keydefs[`${m.code}.${k.key}`] = { ...k, model: m.code };
   if (!models.some((m) => m.code === selected)) selected = "GL";
 
@@ -333,7 +352,10 @@ setInterval(() => {
 async function toggleMicrobit() {
   try {
     if (link.connected) await link.disconnect();
-    else await link.connect();
+    else {
+      await api("/api/auth", {});   // tjek adgangskode FØR micro:bit'en kobles på
+      await link.connect();
+    }
   } catch (e) {
     if (e.name !== "NotFoundError") alert(e.message); // NotFoundError = brugeren lukkede vinduet
   }

@@ -154,3 +154,6 @@ button { font: inherit; cursor: pointer; }
   .topbar, .layout, .strip, .foot { padding-left: 16px; padding-right: 16px; }
   .clock strong { font-size: 22px; }
 }
+
+.lock-note { display: none; }
+body.locked .lock-note { display: inline; }

@@ -1,0 +1,22 @@
+# Render Blueprint – https://render.com/docs/blueprint-spec
+# På Render: New + -> Blueprint -> vælg GitHub-repoet "smartcity".
+services:
+  - type: web
+    name: smartcity
+    runtime: python
+    plan: starter            # persistent disk kræver en betalt plan (gratis-planen sletter data ved genstart)
+    region: frankfurt        # tættest på Danmark
+    buildCommand: python --version   # ingen pakker at installere
+    startCommand: python server.py
+    healthCheckPath: /api/config
+    envVars:
+      - key: SMARTCITY_DB
+        value: /var/data/smartcity.db
+      - key: ADMIN_KEY
+        generateValue: true  # Render laver en tilfældig adgangskode – find den under "Environment"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    disk:
+      name: smartcity-data
+      mountPath: /var/data
+      sizeGB: 1

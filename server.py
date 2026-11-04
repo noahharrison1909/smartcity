@@ -15,6 +15,7 @@ Micro:bits kobles til browseren med WebSerial. Browseren sender deres data herti
 (POST /api/data), og serveren sender kommandoer tilbage via strømmen (event "cmd"),
 som browseren skriver ud til micro:bit'en.
 """
+import hmac
 import json
 import math
 import os
@@ -31,6 +32,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 STATIC = os.path.join(ROOT, "static")
 DB_PATH = os.environ.get("SMARTCITY_DB", os.path.join(ROOT, "smartcity.db"))
 PORT = int(os.environ.get("PORT", "8000"))
+# Hvis ADMIN_KEY er sat (fx på Render), kræver alt der ÆNDRER byen en adgangskode.
+# Alle kan stadig se byen. Lokalt uden ADMIN_KEY er alt åbent.
+ADMIN_KEY = os.environ.get("ADMIN_KEY", "")
 
 TICK_SECONDS = 1.0        # hvor tit simuleringen regner (rigtige sekunder)
 LIVE_HOLD = 20.0          # så længe en micro:bit-værdi "vinder" over simuleringen
@@ -198,6 +202,7 @@ class Database:
     def __init__(self, path):
         self.path = path
         self.q = queue.Queue()
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
         conn = self.connect()
         conn.executescript(SCHEMA)
         for m in MODELS:
@@ -685,6 +690,8 @@ class Handler(BaseHTTPRequestHandler):
         p = url.path
         if p == "/api/stream":
             return self.stream()
+        if p == "/api/config":
+            return self.send_json({"locked": bool(ADMIN_KEY)})
         if p == "/api/models":
             return self.send_json(MODELS)
         if p == "/api/state":
@@ -706,8 +713,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json([dict(zip(("serial", "model", "first", "last", "packets"), r)) for r in rows])
         return self.static(p)
 
+    def authorized(self):
+        if not ADMIN_KEY:
+            return True
+        return hmac.compare_digest(self.headers.get("X-Admin-Key", "").encode(), ADMIN_KEY.encode())
+
     def do_POST(self):
         p = urlparse(self.path).path
+        if not self.authorized():
+            return self.send_json({"error": "Forkert eller manglende adgangskode"}, 401)
+        if p == "/api/auth":
+            return self.send_json({"ok": True})
         try:
             data = self.read_json()
         except (ValueError, json.JSONDecodeError) as e:
@@ -782,7 +798,8 @@ if __name__ == "__main__":
     threading.Thread(target=sim_loop, args=(CITY,), daemon=True, name="simulation").start()
     server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     server.daemon_threads = True
-    print(f"SmartCity kører på http://localhost:{PORT}  (database: {DB_PATH})")
+    print(f"SmartCity kører på http://localhost:{PORT}  (database: {DB_PATH})"
+          + ("  [adgangskode slået til]" if ADMIN_KEY else ""))
     try:
         server.serve_forever()
     except KeyboardInterrupt:

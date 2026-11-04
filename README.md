@@ -13,6 +13,26 @@ python3 server.py
 Åbn **http://localhost:8000** i **Chrome eller Edge** (WebSerial virker kun der).
 Ingen installation – kun Pythons standardbibliotek.
 
+## Online på Render
+
+Repoet indeholder `render.yaml`, så Render sætter alt op automatisk:
+
+1. Log ind på [render.com](https://render.com) med din GitHub-konto.
+2. **New + → Blueprint** → vælg repoet `smartcity` → **Apply**.
+3. Når den er bygget, får du en adresse som `https://smartcity-xxxx.onrender.com`.
+4. Find adgangskoden under **smartcity → Environment → ADMIN_KEY** (Render har lavet en tilfældig).
+   Du kan også selv skrive en ny der.
+
+Online gælder:
+- **Alle kan se byen**, men for at styre den (hastighed, vejr, nulstil, send værdier, forbinde micro:bit)
+  skal man skrive adgangskoden én gang – browseren husker den.
+- **Databasen** ligger på en persistent disk (`/var/data/smartcity.db`) og overlever genstarter og nye versioner.
+  Disken kræver plan *Starter* (betalt). På gratis-planen forsvinder data ved hver genstart.
+- **WebSerial virker**, fordi Render bruger https. micro:bit'en sidder i USB på din computer, og du forbinder i Chrome som lokalt.
+- Hver gang du pusher til `main` på GitHub, opdaterer Render siden automatisk.
+
+Lokalt (`python3 server.py`) er der ingen adgangskode, medmindre du selv sætter `ADMIN_KEY`.
+
 ## Sådan hænger det sammen
 
 ```
